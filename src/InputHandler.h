@@ -1,46 +1,45 @@
 #pragma once
-#include "InputDebounce.h"
+
+#include <Arduino.h>
 #include "BLECamera.h"
-
-#define DEBOUNCE_DELAY 20
-#define SHUTTER_BUTTON_PIN 11
-#define FOCUS_BUTTON_PIN 12
-#define SELECT_SWITCH_PIN 13
-#define MODE_INDICATOR_LED_PIN 3
-
-static InputDebounce shutterButton;
-static InputDebounce focusButton;
-static InputDebounce selectSwitch;
+#include "BoardConfig.h"
 
 typedef void (*button_callback)(void);
 
 class Input {
 public:
     static inline BLECamera *_camera_ref = nullptr;
-    static bool Init(BLECamera *newcam);
 
-    static void process(unsigned long time);
+    static bool Init(BLECamera *newcam);
+    static void process(unsigned long now);
 
     static void registerResetCallback(button_callback cb);
 
 private:
-
-    static void readStartup(void);
-
-    static void pressTrigger(uint8_t pinIn);
-    static void releaseTrigger(uint8_t pinIn);
-    
-    static void pressFocus(uint8_t pinIn);
-    static void releaseFocus(uint8_t pinIn);
-    static void pressedDurationCallback(uint8_t pinIn, unsigned long duration);
-
-    //Reset logic
-    static void resetCheck(uint8_t pinIn, unsigned long duration);
-    static inline bool canReset;
-
-    static void switch_on(uint8_t pinIn);
-    static void switch_off(uint8_t pinIn);
-
-
     static inline button_callback _resetCallback = nullptr;
+
+    // режимы/состояния
+    static inline bool manualMode = false;
+
+    // debounce states
+    static inline bool lastShutter = false;
+    static inline bool lastFocus = false;
+    static inline bool lastMode = false;
+
+    static inline unsigned long lastDebounceShutter = 0;
+    static inline unsigned long lastDebounceFocus = 0;
+    static inline unsigned long lastDebounceMode = 0;
+
+    static constexpr unsigned long DEBOUNCE_MS = 20;
+
+    // pairing combo
+    static inline bool pairingTriggered = false;
+    static inline unsigned long comboStart = 0;
+
+    // long hold to clear bonds (optional)
+    static inline bool canReset = true;
+    static inline unsigned long shutterHoldStart = 0;
+
+    // helpers
+    static bool readButtonActiveLow(uint8_t pin);
 };

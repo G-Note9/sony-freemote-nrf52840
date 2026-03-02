@@ -51,8 +51,9 @@ public:
     void release(void);
 
     //Faciliates extracting information from manufacturer data
-    bool isCamera(std::array<uint8_t, 16> data);
-    bool pairingStatus(std::array<uint8_t, 16> data);
+    bool isCamera(uint8_t* data, uint8_t len);
+    bool pairingStatus(uint8_t* data, uint8_t len);
+    bool remoteEnabled(uint8_t* data, uint8_t len);
 
     //bool _ignorantTrigger(void);
 

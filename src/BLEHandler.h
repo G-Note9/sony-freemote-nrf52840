@@ -13,6 +13,7 @@ public:
     static bool InitBLE(BLECamera *newcam);
 
     static void clearBonds(void);
+    static void setPairingMode(bool enabled, bool clear_bonds = false);
 
     // Internal stuff
     static void _scan_callback(ble_gap_evt_adv_report_t *report);
@@ -21,5 +22,6 @@ public:
     static void _connection_secured_callback(uint16_t conn_handle);
 
     static inline bool _attempt_pairing;
+    static inline bool _pairing_mode = false;
 
 };

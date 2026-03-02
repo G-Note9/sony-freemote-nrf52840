@@ -14,12 +14,31 @@ void resetTest(void) {
 
 void setup()
 {
+    Serial.begin(115200);
+    delay(200);
+    Serial.println("\n=== FREEMOTE BOOT ===");
     // Setup the red LED
-    pinMode(PIN_LED1, OUTPUT);
+    //pinMode(LED_BUILTIN, OUTPUT);
 
     // Configure the Neopixel Status LED
     RemoteStatus *rs = RemoteStatus::access();
     rs->set(Status::BOOT);
+    
+    // === FIRMWARE MARKER: 3 быстрых вспышки при старте ===
+pinMode(PIN_LED_STATUS, OUTPUT);
+for (int i = 0; i < 8; i++) {
+  digitalWrite(PIN_LED_STATUS, HIGH); delay(80);
+  digitalWrite(PIN_LED_STATUS, LOW);  delay(120);
+}
+
+    // === GPIO SELF-TEST: LEDs on P0.17 and P0.22 for 4 seconds ===
+pinMode(PIN_017, OUTPUT);
+pinMode(PIN_022, OUTPUT);
+digitalWrite(PIN_017, HIGH);
+digitalWrite(PIN_022, HIGH);
+delay(1000);
+digitalWrite(PIN_017, LOW);
+digitalWrite(PIN_022, LOW);
 
     // Setup button handling
     Input::Init(&camera);
@@ -27,11 +46,9 @@ void setup()
     Input::registerResetCallback(resetTest);
 
 // Debug nation bro
-#if CFG_DEBUG
     Serial.begin(115200);
+#if CFG_DEBUG
     rs->set(Status::WAIT_FOR_SERIAL);
-    while (!Serial)
-        delay(10);
 #endif
 
     // Initialze BLE
@@ -43,9 +60,8 @@ void setup()
 
 void loop()
 {
-    // Netflix & Chill
     yield();
 
-    // Check for button presses
+    RemoteStatus::access()->update();
     Input::process(millis());
 }

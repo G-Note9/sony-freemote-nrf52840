@@ -1,113 +1,90 @@
 #include "RemoteStatus.h"
 
-RemoteStatus::RemoteStatus(void)
-{
-    FastLED.addLeds<NEOPIXEL, PIN_NEOPIXEL>(leds, 1);
-    speed = 100;
-    set(NONE);
+static RemoteStatus* instance = nullptr;
 
-    xTaskCreate(&update_wrapper, "update", 512, NULL, TASK_PRIO_LOW, &statusLoopHandle);
+RemoteStatus* RemoteStatus::access() {
+    if (!instance) instance = new RemoteStatus();
+    return instance;
 }
 
-void RemoteStatus::set(Status s)
-{
-    resolveColor(s);
-    updateColor = true;
+RemoteStatus::RemoteStatus() {
+    pinMode(PIN_LED_STATUS, OUTPUT);
+    digitalWrite(PIN_LED_STATUS, LOW);
+
+    currentStatus = Status::NONE;
+    blinking = false;
+    blinkInterval = 0;
+    lastToggle = 0;
+    ledState = LOW;
 }
 
-void RemoteStatus::update()
-{
-    while (true)
-    {
-        vTaskDelay(pdMS_TO_TICKS(speed));
-        if (updateColor)
-        {
-            leds[0] = CRGB(primaryColor.r, primaryColor.g, primaryColor.b);
-            FastLED.show();
-            updateColor = false;
-        }
+void RemoteStatus::update() {
+    if (!blinking) {
+        bool shouldBeOn = (currentStatus != Status::NONE && currentStatus != Status::DO_NOT_USE);
+        digitalWrite(PIN_LED_STATUS, shouldBeOn ? HIGH : LOW);
+        return;
+    }
 
-        if (alternate)
-        {
-            if (!phase)
-            {
-                leds[0] = CRGB(primaryColor.r, primaryColor.g, primaryColor.b);
-                phase = true;
-            }
-            else
-            {
-                leds[0] = CRGB(secondaryColor.r, secondaryColor.g, secondaryColor.b);
-                phase = false;
-            }
-            FastLED.show();
-        }
+    if (millis() - lastToggle >= blinkInterval) {
+        lastToggle = millis();
+        ledState = !ledState;
+        digitalWrite(PIN_LED_STATUS, ledState ? HIGH : LOW);
     }
 }
 
-void RemoteStatus::resolveColor(Status s)
-{
-    Color prim;
-    Color sec;
-    alternate = false;
-    phase = false;
-    speed = 50;
+void RemoteStatus::set(Status s) {
+    currentStatus = s;
+    resolveBlinkPattern(s);
+}
 
-    switch (s)
-    {
-    // General
-    case NONE:
-        prim.set(0, 0, 0);
-        break;
-    case BOOT:
-        prim.set(10, 10, 10);
-        break;
-    case ERROR:
-        prim.set(255, 0, 0);
-        sec.set(5, 0, 0);
-        alternate = true;
-        speed = 100;
-        break;
+void RemoteStatus::resolveBlinkPattern(Status s) {
+    blinking = false;
+    blinkInterval = 0;
 
-    // Connection
-    case CONNECTING:
-        prim.set(0, 0, 255);
-        sec.set(0, 0, 2);
-        alternate = true;
-        speed = 1000;
-        break;
-    case CONNECTED:
-        prim.set(0, 0, 255);
-        break;
-    case CONNECTION_LOST:
-        prim.set(0, 0, 255);
-        sec.set(128, 0, 0);
-        alternate = true;
-        speed = 800;
-        break;
+    switch (s) {
+        case Status::NONE:
+        case Status::DO_NOT_USE:
+            digitalWrite(PIN_LED_STATUS, LOW);
+            break;
 
-    // Usage
-    case READY:
-        prim.set(0, 128, 0);
-        break;
-    case FOCUS_ACQUIRED:
-        prim.set(128, 128, 0);
-        sec.set(10, 128, 0);
-        alternate = true;
-        speed = 100;
-        break;
-    case SHUTTER:
-        prim.set(255, 255, 255);
-        break;
+        case Status::BOOT:
+        case Status::READY:
+        case Status::CONNECTED:
+            digitalWrite(PIN_LED_STATUS, HIGH);
+            break;
 
-    // Debug
-    case WAIT_FOR_SERIAL:
-        prim.set(0, 10, 10);
-        break;
-    case DO_NOT_USE:
-        prim.set(0, 0, 0);
-        break;
-    };
+        case Status::ERROR:
+            blinking = true;
+            blinkInterval = 100;
+            break;
 
-    primaryColor = prim;
-    secondaryColor = sec;
+        case Status::CONNECTING:
+            blinking = true;
+            blinkInterval = 500;
+            break;
+
+        case Status::CONNECTION_LOST:
+            blinking = true;
+            blinkInterval = 200;
+            break;
+
+        case Status::FOCUS_ACQUIRED:
+            blinking = true;
+            blinkInterval = 300;
+            break;
+
+        case Status::SHUTTER:
+            blinking = true;
+            blinkInterval = 80;   // короткое "дрожание" при спуске
+            break;
+
+        case Status::WAIT_FOR_SERIAL:
+            blinking = true;
+            blinkInterval = 1000;
+            break;
+
+        default:
+            digitalWrite(PIN_LED_STATUS, LOW);
+            break;
+    }
 }

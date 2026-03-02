@@ -1,73 +1,39 @@
-#define FASTLED_USE_GLOBAL_BRIGHTNESS 1
-#include <FastLED.h>
+#ifndef REMOTESTATUS_H
+#define REMOTESTATUS_H
 
-#pragma once
+#include <Arduino.h>
+#include "BoardConfig.h"
 
-enum Status
-{
+enum class Status {
     NONE,
     BOOT,
     ERROR,
     CONNECTING,
     CONNECTED,
     CONNECTION_LOST,
-
     READY,
     FOCUS_ACQUIRED,
     SHUTTER,
-
     WAIT_FOR_SERIAL,
-    DO_NOT_USE,
+    DO_NOT_USE
 };
 
-class Color
-{
+class RemoteStatus {
 public:
-    void set(uint8_t nr, uint8_t ng, uint8_t nb)
-    {
-        r = nr;
-        g = ng;
-        b = nb;
-    }
-    uint8_t r;
-    uint8_t g;
-    uint8_t b;
-};
-
-class RemoteStatus
-{
-    static inline RemoteStatus *instance = nullptr;
-
-    RemoteStatus(void);
-
-public:
-    static RemoteStatus *access()
-    {
-        if (instance == nullptr)
-            instance = new RemoteStatus;
-        return instance;
-    }
-
+    static RemoteStatus* access();
     void set(Status s);
+    void update();
 
 private:
-    void update();
-    void resolveColor(Status s);
+    RemoteStatus();
 
-    CRGB leds[1];
+    Status currentStatus;
+    bool blinking;
+    unsigned long blinkInterval;
+    unsigned long lastToggle;
+    bool ledState;
 
-
-    volatile bool updateColor;
-    Color primaryColor;
-    Color secondaryColor;
-    volatile bool alternate;
-    volatile bool phase;
-    volatile uint32_t speed;
-
-    TaskHandle_t statusLoopHandle;
-
-    static void update_wrapper(void *arg)
-    {
-        instance->update();
-    }
+    void resolveBlinkPattern(Status s);
 };
+
+#endif

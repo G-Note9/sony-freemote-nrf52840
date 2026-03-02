@@ -222,38 +222,43 @@ void BLECamera::release(void)
 }
 
 // is_camera returns true if this is a sony cam
-bool BLECamera::isCamera(std::array<uint8_t, 16> data)
+bool BLECamera::isCamera(uint8_t* data, uint8_t len)
 {
-    return std::equal(CAMERA_MANUFACTURER_LOOKUP.begin(), CAMERA_MANUFACTURER_LOOKUP.end(), data.begin());
+    if (len < CAMERA_MANUFACTURER_LOOKUP.size())
+        return false;
+
+    return std::equal(
+        CAMERA_MANUFACTURER_LOOKUP.begin(),
+        CAMERA_MANUFACTURER_LOOKUP.end(),
+        data
+    );
 }
 
 // pairing_status returns true if camera is open for pairing, false otherwise
-bool BLECamera::pairingStatus(std::array<uint8_t, 16> data)
+bool BLECamera::pairingStatus(uint8_t* data, uint8_t len)
 {
-
-    // We are certain this is a camera, lets check for pairing status
-    auto it = std::find(data.begin(), data.end(), 0x22);
-    if (it != data.end() && (it + 1) != data.end())
+    for (int i = 0; i < len - 1; i++)
     {
-        // Bitmasks:
-        //
-        // PairingSupported	0x80
-        // PairingEnabled	0x40
-        // LocationFunctionSupported	0x20
-        // LocationFunctionEnabled	0x10
-        // UnknownFunctionSupported	0x08
-        // UnknownFunctionEnabled	0x04
-        // RemoteFunctionEnabled	0x02
-        // Unknown	0x01
-
-        if ((*(it + 1) & 0x40) == 0x40 && (*(it + 1) & 0x02) == 0x02)
+        if (data[i] == 0x22)
         {
-            // Camera is ready to pair
-            return true;
+            uint8_t flags = data[i + 1];
+
+            // Pairing screen = bit 0x40 set
+            return (flags & 0x40);
         }
     }
+    return false;
+}
 
-    // camera does not want to pair
+bool BLECamera::remoteEnabled(uint8_t* data, uint8_t len)
+{
+    for (int i = 0; i < len - 1; i++)
+    {
+        if (data[i] == 0x22)
+        {
+            return true;  // если тег есть — remote включен
+        }
+    }
     return false;
 }
 
