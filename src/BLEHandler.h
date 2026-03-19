@@ -23,5 +23,6 @@ public:
 
     static inline bool _attempt_pairing;
     static inline bool _pairing_mode = false;
+    static inline uint32_t _reconnect_block_until = 0;
 
 };
