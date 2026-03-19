@@ -12,6 +12,10 @@ constexpr uint16_t SHUTTER_RELEASED = 0x0601;
 constexpr uint16_t PRESS_TO_FOCUS = 0x0701;
 constexpr uint16_t HOLD_FOCUS = 0x0801;
 constexpr uint16_t TAKE_PICTURE = 0x0901;
+constexpr uint16_t AFON_UP   = 0x1401;
+constexpr uint16_t AFON_DOWN = 0x1501;
+constexpr uint16_t C1_UP     = 0x2001;
+constexpr uint16_t C1_DOWN   = 0x2101;
 
 //0x2D01 = Sony Camera Corporation Identifer
 //0x3000 = This is a camera
@@ -26,12 +30,6 @@ constexpr std::array<uint8_t, 2> CAMERA_MODEL_CODE  = {0x45, 0x31};
 //0x22 indicate tag, 0xEF pairing (with bluetooth remote), 0x00 end
 constexpr std::array<uint8_t, 3> CAMERA_PAIRING_TAG = {0x22, 0xEF, 0x00};
 
-enum Mode
-{
-    MANUAL_FOCUS,
-    AUTO_FOCUS
-};
-
 class BLECamera : public BLEClientService
 {
 public:
@@ -41,7 +39,6 @@ public:
     virtual bool begin(void);
     virtual bool discover(uint16_t conn_handle);
 
-
     bool enableNotify(void);
     bool disableNotify(void);
 
@@ -49,6 +46,8 @@ public:
     bool releaseTrigger(void);
     void focus(bool f);
     void release(void);
+    void afOn(bool press);
+    void c1(bool press);
 
     //Faciliates extracting information from manufacturer data
     bool isCamera(uint8_t* data, uint8_t len);
@@ -56,9 +55,6 @@ public:
     bool remoteEnabled(uint8_t* data, uint8_t len);
 
     //bool _ignorantTrigger(void);
-
-    void setMode(Mode m);
-
 
 protected:
     BLEClientCharacteristic _remoteCommand;
@@ -74,7 +70,5 @@ protected:
 
 private:
     RemoteStatus *rs;
-    
-    Mode mode;
-    bool _focusHeld;
+    bool _afOnHeld;
 };

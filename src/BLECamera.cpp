@@ -8,7 +8,7 @@ BLECamera::BLECamera(void)
       _shutterStatus(0),
       _focusStatus(0),
       _recordingStatus(0),
-      _focusHeld(false)
+      _afOnHeld(false)
 {
     rs = RemoteStatus::access();
 }
@@ -53,18 +53,14 @@ void BLECamera::_handle_camera_notification(uint8_t *data, uint16_t len)
 {
 
 #if CFG_DEBUG
-    Serial.println("Camera data: ");
-    Serial.print("LEN: ");
-    Serial.print(len);
-    Serial.print(" DATA: ");
-    for (int n = 0; n < len; n++)
+    Serial.print("RX: ");
+    for (int i = 0; i < len; i++)
     {
-        Serial.print(" ");
-        Serial.print(data[n], HEX);
+        if (data[i] < 0x10) Serial.print("0");
+        Serial.print(data[i], HEX);
         Serial.print(" ");
     }
-    Serial.write("\0\n");
-    Serial.flush();
+    Serial.println();
 #endif
 
     if (len == 3)
@@ -121,52 +117,47 @@ bool BLECamera::disableNotify(void)
 
 bool BLECamera::pressTrigger(void)
 {
-    // Timeout for focus and shutter operations
     uint32_t startTime = millis();
 
-    if (!_focusHeld)
+    if (!_afOnHeld)
     {
-        // Reset focus status
         _focusStatus = 0x00;
 
-        // Focus
+        Serial.println("TRIGGER: PRESS_TO_FOCUS");
         _remoteCommand.write16_resp(PRESS_TO_FOCUS);
 
-        if (mode == AUTO_FOCUS)
-        {
-            // Wait for focus acquisition (with timeout)
-            while (_focusStatus != 0x20)
-            {
-                yield();
-
-                if ((millis() - startTime) >= 3000)
-                {
-                    break;
-                }
-            }
-        }
-    }
-
-    // Release back to focus
-    _remoteCommand.write16_resp(HOLD_FOCUS);
-
-    // Reset shutter status
-    _shutterStatus = 0x00;
-
-    // Shutter
-    _remoteCommand.write16_resp(TAKE_PICTURE);
-
-    if (mode == AUTO_FOCUS)
-    {
-        // Wait for shutter completion (with timeout)
-        while (_shutterStatus != 0x20)
+        while (_focusStatus != 0x20)
         {
             yield();
 
-            if ((millis() - startTime) >= 3000)
+            if ((millis() - startTime) >= 1000)
             {
+                Serial.println("TRIGGER: focus wait timeout");
                 break;
             }
+        }
+
+        Serial.println("TRIGGER: HOLD_FOCUS");
+        _remoteCommand.write16_resp(HOLD_FOCUS);
+    }
+    else
+    {
+        Serial.println("TRIGGER: AF already held, skip focus phase");
+    }
+
+    _shutterStatus = 0x00;
+
+    Serial.println("TRIGGER: TAKE_PICTURE");
+    _remoteCommand.write16_resp(TAKE_PICTURE);
+
+    while (_shutterStatus != 0x20)
+    {
+        yield();
+
+        if ((millis() - startTime) >= 1500)
+        {
+            Serial.println("TRIGGER: shutter wait timeout");
+            break;
         }
     }
 
@@ -187,26 +178,39 @@ bool BLECamera::releaseTrigger(void)
     return true;
 }
 
+void BLECamera::afOn(bool press)
+{
+    _afOnHeld = press;
+
+    uint16_t cmd = press ? AFON_DOWN : AFON_UP;
+
+    Serial.print("CMD AF-ON: 0x");
+    Serial.println(cmd, HEX);
+
+    _remoteCommand.write16_resp(cmd);
+}
+
+void BLECamera::c1(bool press)
+{
+    uint16_t cmd = press ? C1_DOWN : C1_UP;
+
+    Serial.print("CMD C1: 0x");
+    Serial.println(cmd, HEX);
+
+    _remoteCommand.write16_resp(cmd);
+}
 
 void BLECamera::focus(bool f)
 {
-    if (mode == AUTO_FOCUS)
+    if (f)
     {
-        _focusHeld = f;
-
-        if (f)
-        {
-            // Focus
-            _remoteCommand.write16_resp(PRESS_TO_FOCUS);
-        }
-        else
-        {
-            _remoteCommand.write16_resp(HOLD_FOCUS);
-            delay(10);
-
-            // Let go?
-            _remoteCommand.write16_resp(SHUTTER_RELEASED);
-        }
+        Serial.println("FOCUS BTN -> AF-ON DOWN");
+        afOn(true);
+    }
+    else
+    {
+        Serial.println("FOCUS BTN -> AF-ON UP");
+        afOn(false);
     }
 }
 
@@ -265,24 +269,18 @@ bool BLECamera::remoteEnabled(uint8_t* data, uint8_t len)
 // This just sends the commands in order to test, doesn't work if the camera struggles to focus.
 // bool BLECamera::_ignorantTrigger(void)
 // {
-
+//
 //     // Focus
 //     _remoteCommand.write16_resp(0x0701);
-
+//
 //     // Shutter
 //     _remoteCommand.write16_resp(0x0901);
-
+//
 //     // Release back to focus
 //     _remoteCommand.write16_resp(0x0801);
-
+//
 //     // Let go?
 //     _remoteCommand.write16_resp(0x0601);
-
+//
 //     return true;
 // }
-
-void BLECamera::setMode(Mode m)
-{
-    _focusHeld = false;
-    mode = m;
-}

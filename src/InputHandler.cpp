@@ -15,6 +15,7 @@ bool Input::Init(BLECamera *newcam)
     pinMode(PIN_BTN_SHUTTER, INPUT_PULLUP);
     pinMode(PIN_BTN_FOCUS, INPUT_PULLUP);
     pinMode(PIN_BTN_MODE, INPUT_PULLUP);
+    pinMode(PIN_BTN_PAIR, INPUT_PULLUP);
 
     // светодиоды
     pinMode(PIN_LED_STATUS, OUTPUT);
@@ -24,10 +25,6 @@ bool Input::Init(BLECamera *newcam)
     digitalWrite(PIN_LED_STATUS, LOW);
     digitalWrite(PIN_LED_MODE, LOW);
     digitalWrite(PIN_LED_PAIR, LOW);
-
-    // стартовый режим
-    manualMode = false;
-    _camera_ref->setMode(AUTO_FOCUS);
 
     return true;
 }
@@ -43,6 +40,7 @@ void Input::process(unsigned long now)
     bool sRaw = readButtonActiveLow(PIN_BTN_SHUTTER);
     bool fRaw = readButtonActiveLow(PIN_BTN_FOCUS);
     bool mRaw = readButtonActiveLow(PIN_BTN_MODE);
+    bool pRaw = readButtonActiveLow(PIN_BTN_PAIR);
 
     // debounce shutter
     static bool sStable = false;
@@ -59,43 +57,59 @@ void Input::process(unsigned long now)
     if (mRaw != lastMode) { lastDebounceMode = now; lastMode = mRaw; }
     if ((now - lastDebounceMode) > DEBOUNCE_MS) mStable = mRaw;
 
-    // --- Pairing combo: SHUTTER + FOCUS hold 3s ---
-    if (sStable && fStable)
+    // debounce pair
+    static bool pStable = false;
+    if (pRaw != lastPair) { lastDebouncePair = now; lastPair = pRaw; }
+    if ((now - lastDebouncePair) > DEBOUNCE_MS) pStable = pRaw;
+
+    // --- Pair button: hold 3s ---
+    static bool prevP = false;
+
+    if (pStable)
     {
-        if (comboStart == 0) comboStart = now;
+        if (!prevP)
+        {
+            comboStart = now;
+            pairingTriggered = false;
+            Serial.println("PAIR BUTTON DOWN");
+        }
 
         if (!pairingTriggered && (now - comboStart) > 3000)
         {
             pairingTriggered = true;
+            Serial.println("PAIR BUTTON HOLD -> pairing_mode=ON");
 
-            // включаем pairing mode + очищаем bonds, чтобы камера точно спросила "подключить?"
             BLEHandler::setPairingMode(true, true);
-
             digitalWrite(PIN_LED_PAIR, HIGH);
         }
     }
     else
     {
+        if (prevP)
+        {
+            Serial.println("PAIR BUTTON UP");
+        }
+
         comboStart = 0;
         pairingTriggered = false;
         digitalWrite(PIN_LED_PAIR, LOW);
     }
 
-    // --- Mode button: toggle AF/MF on press edge ---
+    prevP = pStable;
+
+    // --- Mode button -> C1 hold ---
     static bool prevM = false;
     if (mStable && !prevM)
     {
-        manualMode = !manualMode;
-        if (manualMode)
-        {
-            _camera_ref->setMode(MANUAL_FOCUS);
-            digitalWrite(PIN_LED_MODE, HIGH);
-        }
-        else
-        {
-            _camera_ref->setMode(AUTO_FOCUS);
-            digitalWrite(PIN_LED_MODE, LOW);
-        }
+        Serial.println("MODE BUTTON -> C1 DOWN");
+        _camera_ref->c1(true);
+        digitalWrite(PIN_LED_MODE, HIGH);
+    }
+    if (!mStable && prevM)
+    {
+        Serial.println("MODE BUTTON -> C1 UP");
+        _camera_ref->c1(false);
+        digitalWrite(PIN_LED_MODE, LOW);
     }
     prevM = mStable;
 

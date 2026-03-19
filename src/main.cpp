@@ -24,14 +24,14 @@ void setup()
     RemoteStatus *rs = RemoteStatus::access();
     rs->set(Status::BOOT);
     
-    // === FIRMWARE MARKER: 3 быстрых вспышки при старте ===
+    // === FIRMWARE MARKER: 8 быстрых вспышек при старте ===
 pinMode(PIN_LED_STATUS, OUTPUT);
 for (int i = 0; i < 8; i++) {
   digitalWrite(PIN_LED_STATUS, HIGH); delay(80);
   digitalWrite(PIN_LED_STATUS, LOW);  delay(120);
 }
 
-    // === GPIO SELF-TEST: LEDs on P0.17 and P0.22 for 4 seconds ===
+    // === GPIO SELF-TEST: LEDs on P0.17 and P0.22 for 1 seconds ===
 pinMode(PIN_017, OUTPUT);
 pinMode(PIN_022, OUTPUT);
 digitalWrite(PIN_017, HIGH);

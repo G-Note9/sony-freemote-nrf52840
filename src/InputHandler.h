@@ -18,17 +18,16 @@ public:
 private:
     static inline button_callback _resetCallback = nullptr;
 
-    // режимы/состояния
-    static inline bool manualMode = false;
-
     // debounce states
     static inline bool lastShutter = false;
     static inline bool lastFocus = false;
     static inline bool lastMode = false;
+    static inline bool lastPair = false;
 
     static inline unsigned long lastDebounceShutter = 0;
     static inline unsigned long lastDebounceFocus = 0;
     static inline unsigned long lastDebounceMode = 0;
+    static inline unsigned long lastDebouncePair = 0;
 
     static constexpr unsigned long DEBOUNCE_MS = 20;
 
