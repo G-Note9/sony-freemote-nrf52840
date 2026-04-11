@@ -2,6 +2,9 @@
 
 RemoteStatus *rs = RemoteStatus::access();
 
+#if CFG_DEBUG
+#define BLE_TRACE_PRINT(...) Serial.print(__VA_ARGS__)
+#define BLE_TRACE_PRINTLN(...) Serial.println(__VA_ARGS__)
 static void print_addr(const ble_gap_evt_adv_report_t *report)
 {
     char buf[18];
@@ -10,6 +13,10 @@ static void print_addr(const ble_gap_evt_adv_report_t *report)
              report->peer_addr.addr[2], report->peer_addr.addr[1], report->peer_addr.addr[0]);
     Serial.print(buf);
 }
+#else
+#define BLE_TRACE_PRINT(...) do {} while (0)
+#define BLE_TRACE_PRINTLN(...) do {} while (0)
+#endif
 
 bool BLEHandler::InitBLE(BLECamera *newcam)
 {
@@ -73,8 +80,6 @@ void BLEHandler::_scan_callback(ble_gap_evt_adv_report_t *report)
     }
 
     bool pairingOpen = _camera_ref->pairingStatus(data.data(), bufferSize);
-    bool remoteOn    = _camera_ref->remoteEnabled(data.data(), bufferSize);
-
     bool ok_to_connect = false;
 
     if (_pairing_mode)
@@ -90,6 +95,8 @@ void BLEHandler::_scan_callback(ble_gap_evt_adv_report_t *report)
         _attempt_pairing = false;
     }
 
+#if CFG_DEBUG
+    const bool remoteOn = _camera_ref->remoteEnabled(data.data(), bufferSize);
     Serial.print("SCAN: addr=");
     print_addr(report);
     Serial.print(" sony_by_mfg=YES pairingOpen=");
@@ -100,10 +107,11 @@ void BLEHandler::_scan_callback(ble_gap_evt_adv_report_t *report)
     Serial.print(_pairing_mode ? "YES" : "NO");
     Serial.print(" ok_to_connect=");
     Serial.println(ok_to_connect ? "YES" : "NO");
+#endif
 
     if (ok_to_connect)
     {
-        Serial.println("SCAN: connecting...");
+        BLE_TRACE_PRINTLN("SCAN: connecting...");
         Bluefruit.Central.connect(report);
         return;
     }
@@ -117,18 +125,18 @@ void BLEHandler::_connect_callback(uint16_t conn_handle)
 
     RemoteStatus::access()->set(Status::CONNECTED);
 
-    Serial.print("CONN: connected handle=");
-    Serial.println(conn_handle);
+    BLE_TRACE_PRINT("CONN: connected handle=");
+    BLE_TRACE_PRINTLN(conn_handle);
 
-    Serial.print("CONN: pairing_mode=");
-    Serial.print(_pairing_mode ? "YES" : "NO");
-    Serial.print(" attempt_pairing=");
-    Serial.println(_attempt_pairing ? "YES" : "NO");
+    BLE_TRACE_PRINT("CONN: pairing_mode=");
+    BLE_TRACE_PRINT(_pairing_mode ? "YES" : "NO");
+    BLE_TRACE_PRINT(" attempt_pairing=");
+    BLE_TRACE_PRINTLN(_attempt_pairing ? "YES" : "NO");
 
     // В pairing mode явно инициируем pairing
     if (_pairing_mode || _attempt_pairing)
     {
-        Serial.println("CONN: requestPairing()");
+        BLE_TRACE_PRINTLN("CONN: requestPairing()");
         conn->requestPairing();
         return;
     }
@@ -136,7 +144,7 @@ void BLEHandler::_connect_callback(uint16_t conn_handle)
     // В normal mode не держим небондированное соединение
     if (!conn->bonded())
     {
-        Serial.println("CONN: not bonded and not pairing_mode -> disconnect");
+        BLE_TRACE_PRINTLN("CONN: not bonded and not pairing_mode -> disconnect");
         conn->disconnect();
         return;
     }
@@ -158,25 +166,25 @@ void BLEHandler::_connection_secured_callback(uint16_t conn_handle)
 {
     BLEConnection *conn = Bluefruit.Connection(conn_handle);
 
-    Serial.print("SEC: secured=");
-    Serial.println(conn->secured() ? "YES" : "NO");
+    BLE_TRACE_PRINT("SEC: secured=");
+    BLE_TRACE_PRINTLN(conn->secured() ? "YES" : "NO");
 
     if (!conn->secured())
     {
         if (_pairing_mode || _attempt_pairing)
         {
-            Serial.println("SEC: not secure in pairing mode -> requestPairing()");
+            BLE_TRACE_PRINTLN("SEC: not secure in pairing mode -> requestPairing()");
             conn->requestPairing();
         }
         else
         {
-            Serial.println("SEC: not secure in normal mode -> disconnect");
+            BLE_TRACE_PRINTLN("SEC: not secure in normal mode -> disconnect");
             conn->disconnect();
         }
         return;
     }
 
-    Serial.println("SEC: OK -> discover services");
+    BLE_TRACE_PRINTLN("SEC: OK -> discover services");
 
     if (!_camera_ref->discover(conn_handle))
     {
@@ -185,11 +193,11 @@ void BLEHandler::_connection_secured_callback(uint16_t conn_handle)
         return;
     }
 
-    Serial.println("GATT: discover OK -> enable notify");
+    BLE_TRACE_PRINTLN("GATT: discover OK -> enable notify");
 
     if (_camera_ref->enableNotify())
     {
-        Serial.println("GATT: notify enabled -> READY");
+        Serial.println("BLE: READY");
 
         _pairing_mode = false;
         _attempt_pairing = false;

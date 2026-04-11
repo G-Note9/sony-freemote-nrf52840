@@ -16,10 +16,10 @@ bool Input::Init(BLECamera *newcam)
     timerStopIssued = false;
     timerPreset = 0;
     timerStartedAt = 0;
-    timerArmedAt = 0;
     bulbActive = false;
+    bulbStopIssued = false;
     bulbStartedAt = 0;
-    bulbArmedAt = 0;
+    bulbStopAt = 0;
     bulbLastElapsed = 0;
 
     // кнопки
@@ -58,7 +58,7 @@ bool Input::isTimerRunning()
 
 bool Input::isBulbRunning()
 {
-    return bulbActive;
+    return bulbActive && !bulbStopIssued;
 }
 
 unsigned long Input::timerPresetMs()
@@ -72,12 +72,11 @@ unsigned long Input::timerRemainingMs(unsigned long now)
         return timerPreset;
     }
 
-    const unsigned long activeStart = timerStartedAt == 0 ? (timerArmedAt + TIMER_START_DELAY_MS) : timerStartedAt;
-    if (now <= activeStart) {
+    if (timerStartedAt == 0 || now <= timerStartedAt) {
         return timerPreset;
     }
 
-    const unsigned long elapsed = now - activeStart;
+    const unsigned long elapsed = now - timerStartedAt;
     return (elapsed >= timerPreset) ? 0 : (timerPreset - elapsed);
 }
 
@@ -91,7 +90,8 @@ unsigned long Input::bulbElapsedMs(unsigned long now)
         return 0;
     }
 
-    return now - bulbStartedAt;
+    const unsigned long effectiveNow = (bulbStopIssued && bulbStopAt != 0 && now >= bulbStopAt) ? bulbStopAt : now;
+    return (effectiveNow > bulbStartedAt) ? (effectiveNow - bulbStartedAt) : 0;
 }
 
 bool Input::isConnected()
@@ -104,19 +104,18 @@ bool Input::isConnected()
 
 void Input::cancelActiveCapture()
 {
-    if (bulbActive || (timerActive && !timerStopIssued)) {
-        _camera_ref->pressTrigger();
-        delay(50);
-        _camera_ref->releaseTrigger();
+    if ((bulbActive && !bulbStopIssued) || (timerActive && !timerStopIssued)) {
+        _camera_ref->tapTrigger();
     }
 
     bulbActive = false;
+    bulbStopIssued = false;
     bulbStartedAt = 0;
-    bulbArmedAt = 0;
+    bulbStopAt = 0;
+    bulbLastElapsed = 0;
     timerActive = false;
     timerStopIssued = false;
     timerStartedAt = 0;
-    timerArmedAt = 0;
 }
 
 void Input::setMode(CaptureMode newMode)
@@ -133,7 +132,9 @@ void Input::setMode(CaptureMode newMode)
     }
 
     if (currentMode != CaptureMode::BULB) {
+        bulbStopIssued = false;
         bulbStartedAt = 0;
+        bulbStopAt = 0;
         bulbLastElapsed = 0;
     }
 }
@@ -171,32 +172,27 @@ void Input::startBulb(unsigned long now)
         return;
     }
 
-    _camera_ref->pressTrigger();
-    bulbActive = true;
-    bulbArmedAt = now;
-    bulbStartedAt = 0;
-    bulbLastElapsed = 0;
+    if (_camera_ref->tapTrigger()) {
+        bulbActive = true;
+        bulbStopIssued = false;
+        bulbStartedAt = now;
+        bulbStopAt = 0;
+        bulbLastElapsed = 0;
+    }
 }
 
 void Input::stopBulb()
 {
-    if (!bulbActive) {
+    if (!bulbActive || bulbStopIssued) {
         return;
     }
 
-    if (bulbStartedAt != 0) {
-        const unsigned long now = millis();
-        bulbLastElapsed = (now > bulbStartedAt) ? (now - bulbStartedAt) : 0;
-    } else {
-        bulbLastElapsed = 0;
-    }
+    const unsigned long now = millis();
 
-    _camera_ref->pressTrigger();
-    delay(50);
-    _camera_ref->releaseTrigger();
-    bulbActive = false;
-    bulbStartedAt = 0;
-    bulbArmedAt = 0;
+    if (_camera_ref->tapTrigger()) {
+        bulbStopIssued = true;
+        bulbStopAt = now + BULB_STOP_DELAY_MS;
+    }
 }
 
 void Input::startTimer(unsigned long now)
@@ -205,64 +201,56 @@ void Input::startTimer(unsigned long now)
         return;
     }
 
-    _camera_ref->pressTrigger();
-    timerActive = true;
-    timerStopIssued = false;
-    timerArmedAt = now;
-    timerStartedAt = 0;
+    if (_camera_ref->tapTrigger()) {
+        timerActive = true;
+        timerStopIssued = false;
+        timerStartedAt = now + TIMER_START_DELAY_MS;
+    }
 }
 
 void Input::stopTimer()
 {
-    if (!timerActive) {
+    if (!timerActive || timerStopIssued) {
         return;
     }
 
-    if (!timerStopIssued) {
-        _camera_ref->pressTrigger();
-        delay(50);
-        _camera_ref->releaseTrigger();
+    if (_camera_ref->tapTrigger()) {
+        timerStopIssued = true;
     }
-
-    timerActive = false;
-    timerStopIssued = false;
-    timerStartedAt = 0;
-    timerArmedAt = 0;
 }
 
 void Input::process(unsigned long now)
 {
-    _camera_ref->serviceAsync();
-
-    if (timerActive && !timerStopIssued && timerRemainingMs(now) <= TIMER_STOP_EARLY_MS) {
-        if (_camera_ref->startShutterTapAsync()) {
-            timerStopIssued = true;
-        }
+    if (bulbActive && bulbStopIssued && bulbStopAt != 0 && now >= bulbStopAt) {
+        bulbLastElapsed = (bulbStartedAt != 0 && bulbStopAt > bulbStartedAt) ? (bulbStopAt - bulbStartedAt) : 0;
+        bulbActive = false;
+        bulbStopIssued = false;
+        bulbStartedAt = 0;
+        bulbStopAt = 0;
     }
 
-    if (timerActive && timerRemainingMs(now) == 0 && (!timerStopIssued || !_camera_ref->isAsyncActive())) {
+    if (timerActive && !timerStopIssued && timerRemainingMs(now) <= TIMER_STOP_EARLY_MS) {
         stopTimer();
+    }
+
+    if (timerActive && timerStopIssued && timerRemainingMs(now) == 0) {
+        timerActive = false;
+        timerStopIssued = false;
+        timerStartedAt = 0;
     }
 
     if (!isConnected()) {
         bulbActive = false;
+        bulbStopIssued = false;
         bulbStartedAt = 0;
-        bulbArmedAt = 0;
+        bulbStopAt = 0;
+        bulbLastElapsed = 0;
         timerActive = false;
         timerStopIssued = false;
         timerStartedAt = 0;
-        timerArmedAt = 0;
     }
 
     // читаем сырье
-    if (bulbActive && bulbStartedAt == 0 && bulbArmedAt != 0 && (now - bulbArmedAt) >= BULB_START_DELAY_MS) {
-        bulbStartedAt = bulbArmedAt + BULB_START_DELAY_MS;
-    }
-
-    if (timerActive && timerStartedAt == 0 && timerArmedAt != 0 && (now - timerArmedAt) >= TIMER_START_DELAY_MS) {
-        timerStartedAt = timerArmedAt + TIMER_START_DELAY_MS;
-    }
-
     const bool sRaw = readButtonActiveLow(PIN_BTN_SHUTTER);
     const bool fRaw = readButtonActiveLow(PIN_BTN_FOCUS);
     const bool c1Raw = readButtonActiveLow(PIN_BTN_C1);
@@ -303,7 +291,9 @@ void Input::process(unsigned long now)
         {
             pairHoldStart = now;
             pairingTriggered = false;
+#if CFG_DEBUG
             Serial.println("PAIR BUTTON DOWN");
+#endif
         }
 
         if (!pairingTriggered && (now - pairHoldStart) > PAIR_HOLD_MS)
@@ -319,7 +309,9 @@ void Input::process(unsigned long now)
     {
         if (prevP)
         {
+#if CFG_DEBUG
             Serial.println("PAIR BUTTON UP");
+#endif
         }
 
         pairHoldStart = 0;

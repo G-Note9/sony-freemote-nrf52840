@@ -55,11 +55,11 @@ private:
     static inline bool timerStopIssued = false;
     static inline unsigned long timerPreset = 0;
     static inline unsigned long timerStartedAt = 0;
-    static inline unsigned long timerArmedAt = 0;
 
     static inline bool bulbActive = false;
+    static inline bool bulbStopIssued = false;
     static inline unsigned long bulbStartedAt = 0;
-    static inline unsigned long bulbArmedAt = 0;
+    static inline unsigned long bulbStopAt = 0;
     static inline unsigned long bulbLastElapsed = 0;
 
     static inline unsigned long modePressStart = 0;
@@ -76,9 +76,9 @@ private:
     static constexpr unsigned long MODE_REPEAT_MS = 1000;
     static constexpr unsigned long MODE_CLICK_WINDOW_MS = 650;
     static constexpr unsigned long TIMER_STEP_MS = 5000;
-    static constexpr unsigned long TIMER_START_DELAY_MS = 2000;
+    static constexpr unsigned long TIMER_START_DELAY_MS = 1000;
     static constexpr unsigned long TIMER_STOP_EARLY_MS = 1000;
-    static constexpr unsigned long BULB_START_DELAY_MS = 1500;
+    static constexpr unsigned long BULB_STOP_DELAY_MS = 1000;
 
     static bool readButtonActiveLow(uint8_t pin);
     static bool isConnected();

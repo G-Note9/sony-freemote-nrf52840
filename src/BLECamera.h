@@ -8,10 +8,12 @@
 #include <algorithm>
 #include "RemoteStatus.h"
 
-constexpr uint16_t SHUTTER_RELEASED = 0x0601;
-constexpr uint16_t PRESS_TO_FOCUS = 0x0701;
-constexpr uint16_t HOLD_FOCUS = 0x0801;
-constexpr uint16_t TAKE_PICTURE = 0x0901;
+// Two-stage shutter sequence:
+// half down -> full down -> half up -> full up.
+constexpr uint16_t SHUTTER_HALF_UP = 0x0601;
+constexpr uint16_t SHUTTER_HALF_DOWN = 0x0701;
+constexpr uint16_t SHUTTER_FULL_UP = 0x0801;
+constexpr uint16_t SHUTTER_FULL_DOWN = 0x0901;
 constexpr uint16_t AFON_UP   = 0x1401;
 constexpr uint16_t AFON_DOWN = 0x1501;
 constexpr uint16_t C1_UP     = 0x2001;
@@ -44,8 +46,8 @@ public:
 
     bool pressTrigger(void);
     bool releaseTrigger(void);
+    bool tapTrigger(void);
     bool startTriggerTapAsync(void);
-    bool startShutterTapAsync(void);
     void serviceAsync(void);
     bool isAsyncActive(void) const;
     void focus(bool f);
@@ -78,11 +80,9 @@ private:
 
     enum class AsyncTriggerState : uint8_t {
         Idle,
-        WaitFocus,
-        WaitShutter,
-        WaitQuickHoldAndShutter,
-        WaitReleaseHold,
-        WaitReleaseUp
+        WaitTapFullDown,
+        WaitTapHalfUp,
+        WaitTapFullUp
     };
 
     AsyncTriggerState _asyncTriggerState;

@@ -1,6 +1,14 @@
 #include "BLECamera.h"
 #include "bluefruit.h"
 
+#if CFG_DEBUG
+#define CAM_TRACE_PRINT(...) Serial.print(__VA_ARGS__)
+#define CAM_TRACE_PRINTLN(...) Serial.println(__VA_ARGS__)
+#else
+#define CAM_TRACE_PRINT(...) do {} while (0)
+#define CAM_TRACE_PRINTLN(...) do {} while (0)
+#endif
+
 BLECamera::BLECamera(void)
     : BLEClientService("8000FF00-FF00-FFFF-FFFF-FFFFFFFFFFFF"),
       _remoteCommand(0xFF01),
@@ -125,8 +133,8 @@ bool BLECamera::pressTrigger(void)
     {
         _focusStatus = 0x00;
 
-        Serial.println("TRIGGER: PRESS_TO_FOCUS");
-        _remoteCommand.write16_resp(PRESS_TO_FOCUS);
+        CAM_TRACE_PRINTLN("TRIGGER: SHUTTER HALF DOWN");
+        _remoteCommand.write16_resp(SHUTTER_HALF_DOWN);
 
         while (_focusStatus != 0x20)
         {
@@ -138,19 +146,16 @@ bool BLECamera::pressTrigger(void)
                 break;
             }
         }
-
-        Serial.println("TRIGGER: HOLD_FOCUS");
-        _remoteCommand.write16_resp(HOLD_FOCUS);
     }
     else
     {
-        Serial.println("TRIGGER: AF already held, skip focus phase");
+        CAM_TRACE_PRINTLN("TRIGGER: AF already held, skip focus phase");
     }
 
     _shutterStatus = 0x00;
 
-    Serial.println("TRIGGER: TAKE_PICTURE");
-    _remoteCommand.write16_resp(TAKE_PICTURE);
+    CAM_TRACE_PRINTLN("TRIGGER: SHUTTER FULL DOWN");
+    _remoteCommand.write16_resp(SHUTTER_FULL_DOWN);
 
     while (_shutterStatus != 0x20)
     {
@@ -168,16 +173,29 @@ bool BLECamera::pressTrigger(void)
 
 bool BLECamera::releaseTrigger(void)
 {
-
-    // Release back to focus
-    _remoteCommand.write16_resp(HOLD_FOCUS);
+    CAM_TRACE_PRINTLN("TRIGGER: SHUTTER HALF UP");
+    _remoteCommand.write16_resp(SHUTTER_HALF_UP);
 
     delay(10);
 
-    // Let go?
-    _remoteCommand.write16_resp(SHUTTER_RELEASED);
+    CAM_TRACE_PRINTLN("TRIGGER: SHUTTER FULL UP");
+    _remoteCommand.write16_resp(SHUTTER_FULL_UP);
 
     return true;
+}
+
+bool BLECamera::tapTrigger(void)
+{
+    if (_asyncTriggerState != AsyncTriggerState::Idle) {
+        return false;
+    }
+
+    if (!pressTrigger()) {
+        return false;
+    }
+
+    delay(50);
+    return releaseTrigger();
 }
 
 bool BLECamera::startTriggerTapAsync(void)
@@ -186,35 +204,9 @@ bool BLECamera::startTriggerTapAsync(void)
         return false;
     }
 
-    if (!_afOnHeld)
-    {
-        _focusStatus = 0x00;
-
-        Serial.println("TRIGGER ASYNC: PRESS_TO_FOCUS");
-        _remoteCommand.write16_resp(PRESS_TO_FOCUS);
-        _asyncTriggerState = AsyncTriggerState::WaitFocus;
-        _asyncTriggerDeadlineMs = millis() + 1000UL;
-        return true;
-    }
-
-    _shutterStatus = 0x00;
-
-    Serial.println("TRIGGER ASYNC: TAKE_PICTURE");
-    _remoteCommand.write16_resp(TAKE_PICTURE);
-    _asyncTriggerState = AsyncTriggerState::WaitShutter;
-    _asyncTriggerDeadlineMs = millis() + 1500UL;
-    return true;
-}
-
-bool BLECamera::startShutterTapAsync(void)
-{
-    if (_asyncTriggerState != AsyncTriggerState::Idle) {
-        return false;
-    }
-
-    Serial.println("TRIGGER ASYNC: PRESS_TO_FOCUS (quick tap)");
-    _remoteCommand.write16_resp(PRESS_TO_FOCUS);
-    _asyncTriggerState = AsyncTriggerState::WaitQuickHoldAndShutter;
+    CAM_TRACE_PRINTLN("TRIGGER ASYNC: SHUTTER HALF DOWN");
+    _remoteCommand.write16_resp(SHUTTER_HALF_DOWN);
+    _asyncTriggerState = AsyncTriggerState::WaitTapFullDown;
     _asyncTriggerDeadlineMs = millis() + 20UL;
     return true;
 }
@@ -229,52 +221,31 @@ void BLECamera::serviceAsync(void)
 
     switch (_asyncTriggerState)
     {
-        case AsyncTriggerState::WaitFocus:
-            if (_focusStatus == 0x20 || now >= _asyncTriggerDeadlineMs)
+        case AsyncTriggerState::WaitTapFullDown:
+            if (now >= _asyncTriggerDeadlineMs)
             {
-                Serial.println("TRIGGER ASYNC: HOLD_FOCUS");
-                _remoteCommand.write16_resp(HOLD_FOCUS);
-
-                _shutterStatus = 0x00;
-                Serial.println("TRIGGER ASYNC: TAKE_PICTURE");
-                _remoteCommand.write16_resp(TAKE_PICTURE);
-
-                _asyncTriggerState = AsyncTriggerState::WaitShutter;
-                _asyncTriggerDeadlineMs = now + 1500UL;
-            }
-            break;
-
-        case AsyncTriggerState::WaitShutter:
-            if (_shutterStatus == 0x20 || now >= _asyncTriggerDeadlineMs)
-            {
-                _asyncTriggerState = AsyncTriggerState::WaitReleaseHold;
+                CAM_TRACE_PRINTLN("TRIGGER ASYNC: SHUTTER FULL DOWN");
+                _remoteCommand.write16_resp(SHUTTER_FULL_DOWN);
+                _asyncTriggerState = AsyncTriggerState::WaitTapHalfUp;
                 _asyncTriggerDeadlineMs = now + 50UL;
             }
             break;
 
-        case AsyncTriggerState::WaitQuickHoldAndShutter:
+        case AsyncTriggerState::WaitTapHalfUp:
             if (now >= _asyncTriggerDeadlineMs)
             {
-                _remoteCommand.write16_resp(HOLD_FOCUS);
-                _remoteCommand.write16_resp(TAKE_PICTURE);
-                _asyncTriggerState = AsyncTriggerState::WaitReleaseHold;
-                _asyncTriggerDeadlineMs = now + 50UL;
-            }
-            break;
-
-        case AsyncTriggerState::WaitReleaseHold:
-            if (now >= _asyncTriggerDeadlineMs)
-            {
-                _remoteCommand.write16_resp(HOLD_FOCUS);
-                _asyncTriggerState = AsyncTriggerState::WaitReleaseUp;
+                CAM_TRACE_PRINTLN("TRIGGER ASYNC: SHUTTER HALF UP");
+                _remoteCommand.write16_resp(SHUTTER_HALF_UP);
+                _asyncTriggerState = AsyncTriggerState::WaitTapFullUp;
                 _asyncTriggerDeadlineMs = now + 10UL;
             }
             break;
 
-        case AsyncTriggerState::WaitReleaseUp:
+        case AsyncTriggerState::WaitTapFullUp:
             if (now >= _asyncTriggerDeadlineMs)
             {
-                _remoteCommand.write16_resp(SHUTTER_RELEASED);
+                CAM_TRACE_PRINTLN("TRIGGER ASYNC: SHUTTER FULL UP");
+                _remoteCommand.write16_resp(SHUTTER_FULL_UP);
                 _asyncTriggerState = AsyncTriggerState::Idle;
             }
             break;
@@ -296,8 +267,8 @@ void BLECamera::afOn(bool press)
 
     uint16_t cmd = press ? AFON_DOWN : AFON_UP;
 
-    Serial.print("CMD AF-ON: 0x");
-    Serial.println(cmd, HEX);
+    CAM_TRACE_PRINT("CMD AF-ON: 0x");
+    CAM_TRACE_PRINTLN(cmd, HEX);
 
     _remoteCommand.write16_resp(cmd);
 }
@@ -306,8 +277,8 @@ void BLECamera::c1(bool press)
 {
     uint16_t cmd = press ? C1_DOWN : C1_UP;
 
-    Serial.print("CMD C1: 0x");
-    Serial.println(cmd, HEX);
+    CAM_TRACE_PRINT("CMD C1: 0x");
+    CAM_TRACE_PRINTLN(cmd, HEX);
 
     _remoteCommand.write16_resp(cmd);
 }
@@ -316,25 +287,23 @@ void BLECamera::focus(bool f)
 {
     if (f)
     {
-        Serial.println("FOCUS BTN -> AF-ON DOWN");
+        CAM_TRACE_PRINTLN("FOCUS BTN -> AF-ON DOWN");
         afOn(true);
     }
     else
     {
-        Serial.println("FOCUS BTN -> AF-ON UP");
+        CAM_TRACE_PRINTLN("FOCUS BTN -> AF-ON UP");
         afOn(false);
     }
 }
 
 void BLECamera::release(void)
 {
-    // Release back to focus
-    _remoteCommand.write16_resp(HOLD_FOCUS);
+    _remoteCommand.write16_resp(SHUTTER_HALF_UP);
 
     delay(10);
 
-    // Let go?
-    _remoteCommand.write16_resp(SHUTTER_RELEASED);
+    _remoteCommand.write16_resp(SHUTTER_FULL_UP);
 }
 
 // is_camera returns true if this is a sony cam
@@ -382,17 +351,17 @@ bool BLECamera::remoteEnabled(uint8_t* data, uint8_t len)
 // bool BLECamera::_ignorantTrigger(void)
 // {
 //
-//     // Focus
+//     // Half down
 //     _remoteCommand.write16_resp(0x0701);
 //
-//     // Shutter
+//     // Full down
 //     _remoteCommand.write16_resp(0x0901);
 //
-//     // Release back to focus
-//     _remoteCommand.write16_resp(0x0801);
-//
-//     // Let go?
+//     // Release full press, keep half press
 //     _remoteCommand.write16_resp(0x0601);
+//
+//     // Release half press
+//     _remoteCommand.write16_resp(0x0801);
 //
 //     return true;
 // }
