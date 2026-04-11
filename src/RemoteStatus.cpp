@@ -1,4 +1,5 @@
 #include "RemoteStatus.h"
+#include "OLEDDisplay.h"
 
 static RemoteStatus* instance = nullptr;
 
@@ -19,6 +20,8 @@ RemoteStatus::RemoteStatus() {
 }
 
 void RemoteStatus::update() {
+    OLEDDisplay::access()->update();
+
     if (!blinking) {
         bool shouldBeOn = (currentStatus != Status::NONE && currentStatus != Status::DO_NOT_USE);
         digitalWrite(PIN_LED_STATUS, shouldBeOn ? HIGH : LOW);
@@ -35,6 +38,11 @@ void RemoteStatus::update() {
 void RemoteStatus::set(Status s) {
     currentStatus = s;
     resolveBlinkPattern(s);
+    OLEDDisplay::access()->setStatus(s);
+}
+
+Status RemoteStatus::get() const {
+    return currentStatus;
 }
 
 void RemoteStatus::resolveBlinkPattern(Status s) {
@@ -51,6 +59,11 @@ void RemoteStatus::resolveBlinkPattern(Status s) {
         case Status::READY:
         case Status::CONNECTED:
             digitalWrite(PIN_LED_STATUS, HIGH);
+            break;
+
+        case Status::PAIRING:
+            blinking = true;
+            blinkInterval = 150;
             break;
 
         case Status::ERROR:

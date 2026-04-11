@@ -226,5 +226,6 @@ void BLEHandler::setPairingMode(bool enabled, bool clear_bonds)
     }
 
     _reconnect_block_until = 0;
+    rs->set(enabled ? Status::PAIRING : Status::CONNECTING);
     Bluefruit.Scanner.start(0);
 }

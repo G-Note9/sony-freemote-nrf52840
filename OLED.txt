@@ -1,0 +1,193 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define SCREEN_WIDTH 96
+#define SCREEN_HEIGHT 16
+#define OLED_ADDR 0x3C
+
+#define OLED_SDA 4
+#define OLED_SCL 3
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+const int sepX = 63;
+char modeChar = 'B';
+int batteryPercent = 98;
+
+unsigned long startMs = 0;
+unsigned long lastBatteryStepMs = 0;
+
+// ===== Тайминги =====
+const unsigned long mainScreenIntervalMs   = 30000UL;
+const unsigned long systemScreenDurationMs = 3000UL;
+unsigned long cycleStartMs = 0;
+
+// ===== Main screen =====
+const int timeYOffset = 2;
+const int modeYOffset = -1;
+const int rightBlockXOffset = 2;
+
+// ===== System screens =====
+const int systemTextYOffset = 2;
+const int systemTextXOffset = 0;
+
+void formatTime(unsigned long totalSeconds, char* out, size_t outSize) {
+  unsigned long minutes = totalSeconds / 60;
+  unsigned long seconds = totalSeconds % 60;
+  snprintf(out, outSize, "%02lu:%02lu", minutes, seconds);
+}
+
+void drawBatteryIcon(int x, int y, int percent) {
+  const int bodyW = 10;
+  const int bodyH = 5;
+  const int tipW  = 2;
+  const int tipH  = 3;
+
+  display.drawRect(x, y, bodyW, bodyH, SSD1306_WHITE);
+  display.fillRect(x + bodyW, y + 1, tipW, tipH, SSD1306_WHITE);
+
+  int fillW = map(percent, 0, 100, 0, bodyW - 2);
+  if (fillW < 0) fillW = 0;
+  if (fillW > bodyW - 2) fillW = bodyW - 2;
+
+  if (fillW > 0) {
+    display.fillRect(x + 1, y + 1, fillW, bodyH - 2, SSD1306_WHITE);
+  }
+}
+
+void drawMainScreen(const char* timeStr, int battery, char mode) {
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+
+  int16_t x1, y1;
+  uint16_t w, h;
+
+  display.setTextSize(2);
+  display.getTextBounds(timeStr, 0, 0, &x1, &y1, &w, &h);
+
+  int leftAreaWidth = sepX - 2;
+  int timeX = (leftAreaWidth - (int)w) / 2 - x1;
+  int timeY = (SCREEN_HEIGHT - (int)h) / 2 - y1 + timeYOffset;
+
+  display.setCursor(timeX, timeY);
+  display.print(timeStr);
+
+  display.drawLine(sepX, 0, sepX, SCREEN_HEIGHT - 1, SSD1306_WHITE);
+
+  int rightX = sepX + 2;
+  int rightW = SCREEN_WIDTH - rightX;
+
+  display.setTextSize(1);
+
+  const int battIconW = 12;
+  const int gap = 2;
+  bool showPercent = (battery < 100);
+
+  char battBuf[8] = {0};
+  uint16_t battTextW = 0;
+
+  if (showPercent) {
+    snprintf(battBuf, sizeof(battBuf), "%d", battery);
+    display.getTextBounds(battBuf, 0, 0, &x1, &y1, &w, &h);
+    battTextW = w;
+  }
+
+  int topBlockW = battIconW + (showPercent ? (gap + battTextW) : 0);
+  int topX = rightX + (rightW - topBlockW) / 2 + rightBlockXOffset;
+
+  int battIconX = topX;
+  int battIconY = 1;
+  drawBatteryIcon(battIconX, battIconY, battery);
+
+  if (showPercent) {
+    int battTextX = battIconX + battIconW + gap;
+    int battTextY = 0 - y1;
+    display.setCursor(battTextX, battTextY);
+    display.print(battBuf);
+  }
+
+  char modeBuf[2] = { mode, '\0' };
+  display.getTextBounds(modeBuf, 0, 0, &x1, &y1, &w, &h);
+
+  int modeX = rightX + (rightW - (int)w) / 2 - x1 + rightBlockXOffset;
+  int modeY = 10 - y1 + modeYOffset;
+
+  display.setCursor(modeX, modeY);
+  display.print(modeBuf);
+
+  display.display();
+}
+
+void drawSystemTextScreen(const char* text, uint8_t textSize) {
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  display.setTextSize(textSize);
+
+  int16_t x1, y1;
+  uint16_t w, h;
+  display.getTextBounds(text, 0, 0, &x1, &y1, &w, &h);
+
+  int textX = (SCREEN_WIDTH - (int)w) / 2 - x1 + systemTextXOffset;
+  int textY = (SCREEN_HEIGHT - (int)h) / 2 - y1 + systemTextYOffset;
+
+  display.setCursor(textX, textY);
+  display.print(text);
+
+  display.display();
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(300);
+
+  Wire.begin(OLED_SDA, OLED_SCL);
+
+  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+    Serial.println("SSD1306 init failed");
+    while (true) delay(1000);
+  }
+
+  startMs = millis();
+  lastBatteryStepMs = millis();
+  cycleStartMs = millis();
+}
+
+void loop() {
+  unsigned long now = millis();
+  unsigned long elapsedSeconds = (now - startMs) / 1000UL;
+
+  if (now - lastBatteryStepMs >= 10000UL) {
+    lastBatteryStepMs += 10000UL;
+    batteryPercent++;
+    if (batteryPercent > 100) batteryPercent = 0;
+  }
+
+  unsigned long cycleElapsed = now - cycleStartMs;
+  const unsigned long systemCount = 6;
+  const unsigned long totalSystemBlockMs = systemCount * systemScreenDurationMs;
+
+  char timeBuf[6];
+  formatTime(elapsedSeconds, timeBuf, sizeof(timeBuf));
+
+  if (cycleElapsed < mainScreenIntervalMs) {
+    drawMainScreen(timeBuf, batteryPercent, modeChar);
+  } else if (cycleElapsed < mainScreenIntervalMs + totalSystemBlockMs) {
+    unsigned long systemElapsed = cycleElapsed - mainScreenIntervalMs;
+    int systemIndex = systemElapsed / systemScreenDurationMs;
+
+    switch (systemIndex) {
+      case 0: drawSystemTextScreen("PAIRING",    2); break;
+      case 1: drawSystemTextScreen("CONNECT",    2); break;
+      case 2: drawSystemTextScreen("- VIBE",     2); break;
+      case 3: drawSystemTextScreen("SONY",       2); break;
+      case 4: drawSystemTextScreen("TIMER",      2); break;
+      case 5: drawSystemTextScreen("BULB",       2); break;
+      default: drawMainScreen(timeBuf, batteryPercent, modeChar); break;
+    }
+  } else {
+    cycleStartMs += mainScreenIntervalMs + totalSystemBlockMs;
+  }
+
+  delay(50);
+}

@@ -8,6 +8,7 @@ enum class Status {
     NONE,
     BOOT,
     ERROR,
+    PAIRING,
     CONNECTING,
     CONNECTED,
     CONNECTION_LOST,
@@ -22,6 +23,7 @@ class RemoteStatus {
 public:
     static RemoteStatus* access();
     void set(Status s);
+    Status get() const;
     void update();
 
 private:

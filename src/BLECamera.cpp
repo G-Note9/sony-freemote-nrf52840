@@ -8,7 +8,9 @@ BLECamera::BLECamera(void)
       _shutterStatus(0),
       _focusStatus(0),
       _recordingStatus(0),
-      _afOnHeld(false)
+      _afOnHeld(false),
+      _asyncTriggerState(AsyncTriggerState::Idle),
+      _asyncTriggerDeadlineMs(0)
 {
     rs = RemoteStatus::access();
 }
@@ -176,6 +178,116 @@ bool BLECamera::releaseTrigger(void)
     _remoteCommand.write16_resp(SHUTTER_RELEASED);
 
     return true;
+}
+
+bool BLECamera::startTriggerTapAsync(void)
+{
+    if (_asyncTriggerState != AsyncTriggerState::Idle) {
+        return false;
+    }
+
+    if (!_afOnHeld)
+    {
+        _focusStatus = 0x00;
+
+        Serial.println("TRIGGER ASYNC: PRESS_TO_FOCUS");
+        _remoteCommand.write16_resp(PRESS_TO_FOCUS);
+        _asyncTriggerState = AsyncTriggerState::WaitFocus;
+        _asyncTriggerDeadlineMs = millis() + 1000UL;
+        return true;
+    }
+
+    _shutterStatus = 0x00;
+
+    Serial.println("TRIGGER ASYNC: TAKE_PICTURE");
+    _remoteCommand.write16_resp(TAKE_PICTURE);
+    _asyncTriggerState = AsyncTriggerState::WaitShutter;
+    _asyncTriggerDeadlineMs = millis() + 1500UL;
+    return true;
+}
+
+bool BLECamera::startShutterTapAsync(void)
+{
+    if (_asyncTriggerState != AsyncTriggerState::Idle) {
+        return false;
+    }
+
+    Serial.println("TRIGGER ASYNC: PRESS_TO_FOCUS (quick tap)");
+    _remoteCommand.write16_resp(PRESS_TO_FOCUS);
+    _asyncTriggerState = AsyncTriggerState::WaitQuickHoldAndShutter;
+    _asyncTriggerDeadlineMs = millis() + 20UL;
+    return true;
+}
+
+void BLECamera::serviceAsync(void)
+{
+    if (_asyncTriggerState == AsyncTriggerState::Idle) {
+        return;
+    }
+
+    const unsigned long now = millis();
+
+    switch (_asyncTriggerState)
+    {
+        case AsyncTriggerState::WaitFocus:
+            if (_focusStatus == 0x20 || now >= _asyncTriggerDeadlineMs)
+            {
+                Serial.println("TRIGGER ASYNC: HOLD_FOCUS");
+                _remoteCommand.write16_resp(HOLD_FOCUS);
+
+                _shutterStatus = 0x00;
+                Serial.println("TRIGGER ASYNC: TAKE_PICTURE");
+                _remoteCommand.write16_resp(TAKE_PICTURE);
+
+                _asyncTriggerState = AsyncTriggerState::WaitShutter;
+                _asyncTriggerDeadlineMs = now + 1500UL;
+            }
+            break;
+
+        case AsyncTriggerState::WaitShutter:
+            if (_shutterStatus == 0x20 || now >= _asyncTriggerDeadlineMs)
+            {
+                _asyncTriggerState = AsyncTriggerState::WaitReleaseHold;
+                _asyncTriggerDeadlineMs = now + 50UL;
+            }
+            break;
+
+        case AsyncTriggerState::WaitQuickHoldAndShutter:
+            if (now >= _asyncTriggerDeadlineMs)
+            {
+                _remoteCommand.write16_resp(HOLD_FOCUS);
+                _remoteCommand.write16_resp(TAKE_PICTURE);
+                _asyncTriggerState = AsyncTriggerState::WaitReleaseHold;
+                _asyncTriggerDeadlineMs = now + 50UL;
+            }
+            break;
+
+        case AsyncTriggerState::WaitReleaseHold:
+            if (now >= _asyncTriggerDeadlineMs)
+            {
+                _remoteCommand.write16_resp(HOLD_FOCUS);
+                _asyncTriggerState = AsyncTriggerState::WaitReleaseUp;
+                _asyncTriggerDeadlineMs = now + 10UL;
+            }
+            break;
+
+        case AsyncTriggerState::WaitReleaseUp:
+            if (now >= _asyncTriggerDeadlineMs)
+            {
+                _remoteCommand.write16_resp(SHUTTER_RELEASED);
+                _asyncTriggerState = AsyncTriggerState::Idle;
+            }
+            break;
+
+        case AsyncTriggerState::Idle:
+        default:
+            break;
+    }
+}
+
+bool BLECamera::isAsyncActive(void) const
+{
+    return _asyncTriggerState != AsyncTriggerState::Idle;
 }
 
 void BLECamera::afOn(bool press)

@@ -44,6 +44,10 @@ public:
 
     bool pressTrigger(void);
     bool releaseTrigger(void);
+    bool startTriggerTapAsync(void);
+    bool startShutterTapAsync(void);
+    void serviceAsync(void);
+    bool isAsyncActive(void) const;
     void focus(bool f);
     void release(void);
     void afOn(bool press);
@@ -71,4 +75,16 @@ protected:
 private:
     RemoteStatus *rs;
     bool _afOnHeld;
+
+    enum class AsyncTriggerState : uint8_t {
+        Idle,
+        WaitFocus,
+        WaitShutter,
+        WaitQuickHoldAndShutter,
+        WaitReleaseHold,
+        WaitReleaseUp
+    };
+
+    AsyncTriggerState _asyncTriggerState;
+    unsigned long _asyncTriggerDeadlineMs;
 };
